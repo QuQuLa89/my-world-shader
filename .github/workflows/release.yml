@@ -17,7 +17,7 @@ jobs:
 
       - name: Package release zip
         run: |
-          zip -r "my-world-shader-${{ github.ref_name }}.zip" shaders/ README.md
+          zip -r "my-world-shader-${{ github.ref_name }}.zip" shaders/ README.md README_JA.md LICENSE
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

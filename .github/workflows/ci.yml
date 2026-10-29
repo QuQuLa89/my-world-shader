@@ -43,7 +43,7 @@ jobs:
 
       - name: Package shaderpack zip
         run: |
-          zip -r my-world-shader-nightly.zip shaders/ README.md
+          zip -r my-world-shader-nightly.zip shaders/ README.md README_JA.md LICENSE
 
       - name: Upload nightly artifact
         uses: actions/upload-artifact@v4
