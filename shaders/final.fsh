@@ -129,18 +129,27 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     return (rays / 8.0) * falloff * falloff;
 }
 
-// Solas / BSL に基づく Screen Space Contact Shadows（法線バイアス付き）
-float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal) {
+// Solas / BSL に基づく Screen Space Contact Shadows（特異点保護・ディザー・エッジフェード付き）
+float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 coord) {
     float shadow = 1.0;
-    float traceStep = 0.12;
+    
+    // ピクセル単位のディザーによるスライス縞の根絶
+    float dither = hash(coord * vec2(viewWidth, viewHeight) + fract(frameTimeCounter * 3.0));
+    float traceStep = 0.08 + dither * 0.08;
     float thickness = 1.6;
     
     // 地面自身への自己衝突を防ぐ法線オフセット
-    vec3 rayOrigin = viewPos + normal * 0.05;
+    vec3 rayOrigin = viewPos + normal * 0.06;
     
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 18; i++) {
         vec3 rayPos = rayOrigin + lightDir * traceStep;
+        
+        // カメラ背後への突き抜け・反転特異点を防ぐ安全防壁
+        if (rayPos.z >= -0.2) break;
+        
         vec4 projPos = gbufferProjection * vec4(rayPos, 1.0);
+        if (projPos.w <= 0.0) break;
+        
         vec3 screenPos = projPos.xyz / projPos.w * 0.5 + 0.5;
         
         if (screenPos.x < 0.0 || screenPos.x > 1.0 || 
@@ -149,16 +158,20 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal) {
             break;
         }
         
+        // 画面端に近づいた時のフェードアウト
+        vec2 edgeDist = min(screenPos.xy, 1.0 - screenPos.xy);
+        float edgeFade = smoothstep(0.0, 0.08, min(edgeDist.x, edgeDist.y));
+        
         float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
         float zDelta = -rayPos.z - (-sampledPos.z);
         if (zDelta > 0.04 && zDelta < thickness) {
             float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
-            shadow *= 1.0 - hitFactor;
+            shadow *= 1.0 - (hitFactor * edgeFade);
             if (shadow < 0.01) break;
         }
-        traceStep *= 1.35;
+        traceStep *= 1.30;
     }
     
     return clamp(shadow, 0.0, 1.0);
@@ -195,7 +208,7 @@ void main() {
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
         float NdotL = dot(normal, lightDir);
-        float sss = computeScreenSpaceShadow(viewPos, lightDir, normal);
+        float sss = computeScreenSpaceShadow(viewPos, lightDir, normal, texcoord);
         float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * mix(0.35, 1.0, sss);
         directDiffuse = mix(0.70, 1.15, directDiffuse * envBrightness);
         
@@ -255,8 +268,8 @@ void main() {
 
     fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
 
-    // テスト検証用: フォグ合成を完全バイパス（撤廃）
-    color = color + dynamicLight + godRayColor;
+    // 霧と薄明光線の合成
+    color = mix(color + dynamicLight, currentFog, fogFactor) + godRayColor;
 
     // 8. 輝度算出 & 彩度調整
     float lum = dot(color, vec3(0.299, 0.587, 0.114));
