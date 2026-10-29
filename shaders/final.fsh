@@ -9,6 +9,9 @@ uniform sampler2D colortex0;
 uniform sampler2D depthtex0;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
+uniform sampler2D shadowtex0;
+uniform mat4 shadowModelView;
+uniform mat4 shadowProjection;
 
 uniform float viewWidth;
 uniform float viewHeight;
@@ -126,6 +129,22 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     return (rays / 8.0) * falloff * falloff;
 }
 
+float computeCastShadow(vec3 p) {
+    vec4 shadowClip = shadowProjection * (shadowModelView * vec4(p, 1.0));
+    vec3 shadowScreen = shadowClip.xyz / shadowClip.w;
+    vec3 shadowCoord = shadowScreen * 0.5 + 0.5;
+
+    if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
+        shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
+        shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
+        return 1.0;
+    }
+
+    float shadowDepth = texture2D(shadowtex0, shadowCoord.xy).r;
+    float bias = 0.002;
+    return (shadowCoord.z - bias <= shadowDepth) ? 1.0 : 0.0;
+}
+
 void main() {
     vec2 centeredCoord = texcoord - vec2(0.5);
     float dist = length(centeredCoord);
@@ -157,7 +176,8 @@ void main() {
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
         float NdotL = dot(normal, lightDir);
-        float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
+        float castShadow = computeCastShadow(viewPos);
+        float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * mix(0.40, 1.0, castShadow);
         directDiffuse = mix(0.70, 1.15, directDiffuse * envBrightness);
         
         // 角や隙間の自然なオクルージョン影
@@ -230,7 +250,7 @@ void main() {
     color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
 
     // 10. 周辺減光（Vignette）
-    float vignette = smoothstep(0.88, 0.32, dist);
+    float vignette = smoothstep(0.98, 0.55, dist);
     color *= vignette;
 
     // 11. 蠢くフィルムグレイン（映画的ノイズ）
