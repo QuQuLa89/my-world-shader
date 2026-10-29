@@ -59,7 +59,16 @@ void main() {
     }
 
     // 水と水以外で共通のライトマップを計算します。
-    vec3 lightmapColor = clamp(lmcoord.x * vec3(1.0, 0.9, 0.7) + lmcoord.y * vec3(0.8, 0.85, 0.9), 0.15, 1.0);
+    // 太陽高度と昼夜光度の算出
+    float sunHeight = sin(sunAngle * 6.2831853);
+    float daylight = clamp(sunHeight * 2.5, 0.0, 1.0);
+
+    // 昼夜に応じたアンビエントスカイライトとブロックライトの合成
+    vec3 daySkyLight = vec3(0.80, 0.85, 0.90);
+    vec3 nightSkyLight = vec3(0.025, 0.030, 0.040);
+    vec3 ambientSkyLight = mix(nightSkyLight, daySkyLight, daylight);
+    vec3 torchLight = lmcoord.x * vec3(1.0, 0.85, 0.60);
+    vec3 lightmapColor = clamp(torchLight + lmcoord.y * ambientSkyLight, 0.02, 1.0);
 
     // 水以外はテクスチャとライトマップで描画します。
     if (!isWater) {
@@ -89,8 +98,9 @@ void main() {
     vec3 waveNormal = normalize(normal + vec3(waveOffset.x, 0.0, waveOffset.y));
     
     // 濁ったターコイズブルーの吸光カラー設計
-    vec3 shallowTurquoise = vec3(0.18, 0.55, 0.60); // 浅瀬の澄んだターコイズブルー
-    vec3 deepTurquoise    = vec3(0.03, 0.20, 0.25); // 深淵の暗く沈んだ濁りターコイズ
+    // 濁ったターコイズブルーの吸光カラー設計（昼夜連動）
+    vec3 shallowTurquoise = mix(vec3(0.03, 0.08, 0.09), vec3(0.18, 0.55, 0.60), daylight);
+    vec3 deepTurquoise    = mix(vec3(0.005, 0.02, 0.025), vec3(0.03, 0.20, 0.25), daylight);
     
     // 水深に応じた吸光度（Beer-Lambert則）
     float depthAbsorption = 1.0 - exp(-waterDepth * 0.45);
@@ -105,7 +115,6 @@ void main() {
     float fresnel = 0.04 + 0.96 * pow(1.0 - NdotV, 4.0);
     
     // 太陽光の微細な鏡面反射（スペキュラハイライト）
-    float sunHeight = sin(sunAngle * 6.2831853);
     vec3 lightDir = normalize(sunHeight >= 0.0 ? sunPosition : -sunPosition);
     vec3 halfDir = normalize(lightDir + viewDir);
     float NdotH = clamp(dot(waveNormal, halfDir), 0.0, 1.0);
@@ -113,7 +122,10 @@ void main() {
     vec3 specColor = vec3(0.85, 0.92, 0.96) * specular;
     
     // フレネルによる反射空色のブレンド
-    vec3 skyReflection = vec3(0.40, 0.50, 0.58) * (fresnel * 0.60);
+    // フレネルによる反射空色のブレンド（昼夜連動）
+    vec3 daySkyReflect   = vec3(0.40, 0.50, 0.58);
+    vec3 nightSkyReflect = vec3(0.015, 0.020, 0.030);
+    vec3 skyReflection = mix(nightSkyReflect, daySkyReflect, daylight) * (fresnel * 0.60);
     
     // 最終カラー合成
     vec3 finalColor = waterColor + skyReflection + specColor;
