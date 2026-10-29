@@ -210,7 +210,7 @@ void main() {
     vec3 normal = getNormal(viewPos);
     float linearDist = length(viewPos);
     bool isSky = (depth >= 0.9999);
-    bool isLava = !isSky && (abs(rawAlpha - 0.85) < 0.025) && (color.r > 0.10) && (color.b < 0.22) && (color.r > color.g * 0.85);
+    bool isLava = !isSky && (abs(rawAlpha - 0.85) < 0.025) && (centerTex.r > centerTex.b + 0.12) && (centerTex.r > 0.10);
 
     // 3. 昼夜・地下の光度連動
     float sunHeight = sin(sunAngle * 6.2831853);
