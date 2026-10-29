@@ -16,6 +16,7 @@ varying vec2 lmcoord;
 varying vec3 normal;
 varying vec3 worldPos;
 varying vec3 viewPos;
+varying float isWaterFlag;
 
 // 深度からビュー空間位置を復元
 vec3 getViewPos(vec2 coord, float depth) {
@@ -45,6 +46,21 @@ float waveNoise(vec2 p) {
 
 void main() {
     vec4 texColor = texture2D(texture, texcoord) * color;
+    bool isWater = (isWaterFlag > 0.5);
+
+    // 水以外の透明部分はアルファテストで除外します。
+    if (!isWater) {
+        if (texColor.a < 0.1) discard;
+    }
+
+    // 水と水以外で共通のライトマップを計算します。
+    vec3 lightmapColor = clamp(lmcoord.x * vec3(1.0, 0.9, 0.7) + lmcoord.y * vec3(0.8, 0.85, 0.9), 0.15, 1.0);
+
+    // 水以外はテクスチャとライトマップで描画します。
+    if (!isWater) {
+        gl_FragColor = vec4(texColor.rgb * lightmapColor, texColor.a);
+        return;
+    }
     
     // 画面座標の取得
     vec2 screenCoord = gl_FragCoord.xy / vec2(viewWidth, viewHeight);
@@ -98,7 +114,6 @@ void main() {
     vec3 finalColor = waterColor + skyReflection + specColor;
     
     // バニラライトマップの適用
-    vec3 lightmapColor = clamp(lmcoord.x * vec3(1.0, 0.9, 0.7) + lmcoord.y * vec3(0.8, 0.85, 0.9), 0.15, 1.0);
     finalColor *= lightmapColor;
     
     gl_FragColor = vec4(finalColor, waterAlpha);
