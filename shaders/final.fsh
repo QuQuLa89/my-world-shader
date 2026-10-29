@@ -129,20 +129,35 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     return (rays / 8.0) * falloff * falloff;
 }
 
-float computeCastShadow(vec3 p) {
-    vec4 shadowClip = shadowProjection * (shadowModelView * vec4(p, 1.0));
-    vec3 shadowScreen = shadowClip.xyz / shadowClip.w;
-    vec3 shadowCoord = shadowScreen * 0.5 + 0.5;
-
-    if (shadowCoord.x < 0.0 || shadowCoord.x > 1.0 ||
-        shadowCoord.y < 0.0 || shadowCoord.y > 1.0 ||
-        shadowCoord.z < 0.0 || shadowCoord.z > 1.0) {
-        return 1.0;
+// Solas / BSL に基づく Screen Space Contact Shadows
+float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir) {
+    float shadow = 1.0;
+    float traceStep = 0.15;
+    float thickness = 1.5;
+    
+    for (int i = 0; i < 16; i++) {
+        vec3 rayPos = viewPos + lightDir * traceStep;
+        vec4 projPos = gbufferProjection * vec4(rayPos, 1.0);
+        vec3 screenPos = projPos.xyz / projPos.w * 0.5 + 0.5;
+        
+        if (screenPos.x < 0.0 || screenPos.x > 1.0 || 
+            screenPos.y < 0.0 || screenPos.y > 1.0 || 
+            screenPos.z < 0.0 || screenPos.z > 1.0) {
+            break;
+        }
+        
+        float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
+        vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
+        
+        float zDelta = -rayPos.z - (-sampledPos.z);
+        if (zDelta > 0.06 && zDelta < thickness) {
+            shadow = 0.0;
+            break;
+        }
+        traceStep *= 1.35;
     }
-
-    float shadowDepth = texture2D(shadowtex0, shadowCoord.xy).r;
-    float bias = 0.002;
-    return (shadowCoord.z - bias <= shadowDepth) ? 1.0 : 0.0;
+    
+    return shadow;
 }
 
 void main() {
@@ -176,8 +191,8 @@ void main() {
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
         float NdotL = dot(normal, lightDir);
-        float castShadow = computeCastShadow(viewPos);
-        float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * mix(0.40, 1.0, castShadow);
+        float sss = computeScreenSpaceShadow(viewPos, lightDir);
+        float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * mix(0.35, 1.0, sss);
         directDiffuse = mix(0.70, 1.15, directDiffuse * envBrightness);
         
         // 角や隙間の自然なオクルージョン影
