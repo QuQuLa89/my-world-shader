@@ -24,6 +24,7 @@ uniform vec3 sunPosition;        // 太陽のビュー空間位置 (長さ100.0)
 
 uniform int heldBlockLightValue;  // メインハンド光源 (0~15)
 uniform int heldBlockLightValue2; // オフハンド光源 (0~15)
+uniform int isEyeInWater;          // 0: 空気中, 1: 水中, 2: 溶岩中
 
 uniform vec3 fogColor;                  // バニラ環境フォグ色
 uniform ivec2 eyeBrightnessSmooth;      // プレイヤーの周囲光度 (x: ブロック光, y: 空の光 0~240)
@@ -251,15 +252,37 @@ void main() {
 
     // 6. 薄明光線（安全化された光条 / God Rays）
     float godRays = 0.0;
-    if (daylight > 0.15 && rainStrength < 0.7) {
+    if (daylight > 0.15 && rainStrength < 0.7 && isEyeInWater == 0) {
         godRays = computeGodRays(texcoord, sunPosition) * daylight * (1.0 - rainStrength * 0.7) * 0.28;
     }
     vec3 godRayColor = vec3(0.85, 0.90, 0.96) * godRays;
 
-    // 7. 陰鬱とした鈍色の雨煙・霧（昼夜・洞窟完全連動型フォグ）
-    vec3 dayFogColor = vec3(0.40, 0.44, 0.48);
-    vec3 darkFogColor = vec3(0.012, 0.016, 0.022);
-    vec3 currentFog = mix(darkFogColor, dayFogColor, envBrightness);
+    // 7. 環境に応じた霧（水中: 深い青緑色 / 地上: 昼夜・洞窟連動型フォグ）
+    vec3 currentFog;
+    float fogStart;
+    float baseDensity;
+
+    if (isEyeInWater == 1) {
+        // 水中: 周囲の明るさに応じた深い青緑色の霧
+        vec3 shallowWaterFog = vec3(0.02, 0.08, 0.10) * envBrightness;
+        vec3 deepWaterFog    = vec3(0.003, 0.015, 0.022);
+        currentFog = mix(deepWaterFog, shallowWaterFog, envBrightness);
+        fogStart = 1.0;
+        baseDensity = 0.065; // 水中の視界を制限する霧の密度
+
+        // 距離に応じた色の吸収と全体の暗化
+        color.r *= exp(-linearDist * 0.10);
+        color.g *= exp(-linearDist * 0.04);
+        color.b *= exp(-linearDist * 0.025);
+        color *= 0.65;
+    } else {
+        // 地上: 昼夜・洞窟に連動した霧
+        vec3 dayFogColor = vec3(0.40, 0.44, 0.48);
+        vec3 darkFogColor = vec3(0.012, 0.016, 0.022);
+        currentFog = mix(darkFogColor, dayFogColor, envBrightness);
+        fogStart = 16.0;
+        baseDensity = 0.020 + rainStrength * 0.028;
+    }
     
     if (heldLight > 0) {
         currentFog += vec3(1.0, 0.65, 0.35) * torchInFog;
@@ -269,14 +292,11 @@ void main() {
     vec2 mistCoord = texcoord * 2.5 + vec2(frameTimeCounter * 0.02, frameTimeCounter * 0.01);
     float mist = (noise(mistCoord) - 0.5) * 0.12 * envBrightness;
 
-    // 霧の減衰（中近景の影を保護するため開始距離オフセットを導入）
-    float fogStart = 16.0;
     float fogDist = max(0.0, linearDist - fogStart);
-    float baseDensity = 0.020 + rainStrength * 0.028;
     float fogFactor = 1.0 - exp(-baseDensity * fogDist);
 
     if (isSky) {
-        fogFactor = 0.88 + rainStrength * 0.10;
+        fogFactor = (isEyeInWater == 1) ? 0.98 : (0.88 + rainStrength * 0.10);
     }
 
     fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
