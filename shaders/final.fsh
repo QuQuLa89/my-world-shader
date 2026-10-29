@@ -129,14 +129,17 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     return (rays / 8.0) * falloff * falloff;
 }
 
-// Solas / BSL に基づく Screen Space Contact Shadows
-float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir) {
+// Solas / BSL に基づく Screen Space Contact Shadows（法線バイアス付き）
+float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal) {
     float shadow = 1.0;
-    float traceStep = 0.15;
-    float thickness = 1.5;
+    float traceStep = 0.12;
+    float thickness = 1.6;
+    
+    // 地面自身への自己衝突を防ぐ法線オフセット
+    vec3 rayOrigin = viewPos + normal * 0.05;
     
     for (int i = 0; i < 16; i++) {
-        vec3 rayPos = viewPos + lightDir * traceStep;
+        vec3 rayPos = rayOrigin + lightDir * traceStep;
         vec4 projPos = gbufferProjection * vec4(rayPos, 1.0);
         vec3 screenPos = projPos.xyz / projPos.w * 0.5 + 0.5;
         
@@ -150,14 +153,15 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir) {
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
         float zDelta = -rayPos.z - (-sampledPos.z);
-        if (zDelta > 0.06 && zDelta < thickness) {
-            shadow = 0.0;
-            break;
+        if (zDelta > 0.04 && zDelta < thickness) {
+            float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
+            shadow *= 1.0 - hitFactor;
+            if (shadow < 0.01) break;
         }
         traceStep *= 1.35;
     }
     
-    return shadow;
+    return clamp(shadow, 0.0, 1.0);
 }
 
 void main() {
@@ -191,7 +195,7 @@ void main() {
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
         float NdotL = dot(normal, lightDir);
-        float sss = computeScreenSpaceShadow(viewPos, lightDir);
+        float sss = computeScreenSpaceShadow(viewPos, lightDir, normal);
         float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0) * mix(0.35, 1.0, sss);
         directDiffuse = mix(0.70, 1.15, directDiffuse * envBrightness);
         
