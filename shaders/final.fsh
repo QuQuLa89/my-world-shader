@@ -239,15 +239,17 @@ void main() {
     vec2 mistCoord = texcoord * 2.5 + vec2(frameTimeCounter * 0.02, frameTimeCounter * 0.01);
     float mist = (noise(mistCoord) - 0.5) * 0.12 * envBrightness;
 
-    // 霧の減衰
-    float baseDensity = 0.024 + rainStrength * 0.030;
-    float fogFactor = 1.0 - exp(-baseDensity * linearDist);
+    // 霧の減衰（中近景の影を保護するため開始距離オフセットを導入）
+    float fogStart = 16.0;
+    float fogDist = max(0.0, linearDist - fogStart);
+    float baseDensity = 0.020 + rainStrength * 0.028;
+    float fogFactor = 1.0 - exp(-baseDensity * fogDist);
 
     if (isSky) {
         fogFactor = 0.88 + rainStrength * 0.10;
     }
 
-    fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * linearDist)), 0.0, 1.0);
+    fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
 
     // 霧と薄明光線の合成
     color = mix(color + dynamicLight, currentFog, fogFactor) + godRayColor;
