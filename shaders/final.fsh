@@ -58,11 +58,11 @@ vec3 getViewPos(vec2 coord, float depth) {
     return viewPos.xyz / viewPos.w;
 }
 
-// 画面空間微分による高精度法線復元（縞模様・段差アーティファクトを根絶）
+// 画面空間微分による高精度法線復元（足元・手前ピクセルの微小面積でも破綻しない安全な正規化）
 vec3 getNormal(vec3 p) {
     vec3 n = cross(dFdx(p), dFdy(p));
     float l = length(n);
-    return l > 0.0001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
+    return l > 1e-6 ? (n / l) : vec3(0.0, 0.0, 1.0);
 }
 
 // 洗練されたSSAO（自己遮蔽バイアス付き）
@@ -134,7 +134,7 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
 float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 coord) {
     // 太陽がカメラ背後にある場合（順光）、カメラ焦点へのレイ収束による特異点・巨大影を安全に遮断
     if (lightDir.z > 0.15) return 1.0;
-    float forwardLightFactor = smoothstep(0.15, -0.05, lightDir.z);
+    float forwardLightFactor = 1.0 - smoothstep(-0.05, 0.15, lightDir.z);
 
     float shadow = 1.0;
     
@@ -178,7 +178,7 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         if (sampledWorldY - originWorldY > 0.25) {
             float zDelta = -rayPos.z - (-sampledPos.z);
             if (zDelta > 0.04 && zDelta < thickness) {
-                float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
+                float hitFactor = smoothstep(0.04, 0.25, zDelta) * (1.0 - smoothstep(thickness, thickness + 0.5, zDelta));
                 shadow *= 1.0 - (hitFactor * edgeFade);
                 if (shadow < 0.01) break;
             }
@@ -201,9 +201,10 @@ void main() {
     float b = texture2D(colortex0, texcoord - vec2(aberration, 0.0)).b;
     vec3 color = vec3(r, g, b);
 
-    // 2. 深度と位置の復元
+    // 2. 深度と位置の復元および法線計算（微分ダイバージェンス防止のため無条件領域で実行）
     float depth = texture2D(depthtex0, texcoord).r;
     vec3 viewPos = getViewPos(texcoord, depth);
+    vec3 normal = getNormal(viewPos);
     float linearDist = length(viewPos);
     bool isSky = (depth >= 0.9999);
 
@@ -216,7 +217,6 @@ void main() {
 
     // 4. 自然で重厚な影と光（指向性陰影 & SSAO）
     if (!isSky) {
-        vec3 normal = getNormal(viewPos);
         vec3 lightDir = normalize(sunHeight >= 0.0 ? sunPosition : -sunPosition);
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
@@ -297,7 +297,7 @@ void main() {
     color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
 
     // 10. 周辺減光（Vignette）
-    float vignette = smoothstep(0.98, 0.55, dist);
+    float vignette = 1.0 - smoothstep(0.55, 0.98, dist);
     color *= vignette;
 
     // 11. 蠢くフィルムグレイン（映画的ノイズ）
