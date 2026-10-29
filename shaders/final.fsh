@@ -210,7 +210,7 @@ void main() {
     vec3 normal = getNormal(viewPos);
     float linearDist = length(viewPos);
     bool isSky = (depth >= 0.9999);
-    bool isLava = !isSky && (abs(rawAlpha - 0.85) < 0.03);
+    bool isLava = !isSky && (abs(rawAlpha - 0.85) < 0.025) && (color.r > 0.10) && (color.b < 0.22) && (color.r > color.g * 0.85);
 
     // 3. 昼夜・地下の光度連動
     float sunHeight = sin(sunAngle * 6.2831853);
@@ -234,17 +234,24 @@ void main() {
         
         color *= directDiffuse * ssao;
     }
-    // 4.5 Boiling dark-crimson lava emission
+    // 4.5 Natural muted dark-crimson lava emission
     if (isLava) {
         vec3 worldPos = (gbufferModelViewInverse * vec4(viewPos, 1.0)).xyz;
+        
+        // Gentle bubbling pulsation
+        float boilWave1 = sin(frameTimeCounter * 1.8 + dot(worldPos.xz, vec2(1.2, 0.9))) * 0.06;
+        float boilWave2 = cos(frameTimeCounter * 3.1 + dot(worldPos.xz, vec2(-0.8, 1.3))) * 0.03;
+        float boilPulse = 1.0 + boilWave1 + boilWave2;
+        
+        // Convert yellow vanilla lava into deep dark-crimson without metallic overwrites
+        vec3 deepCrimson = vec3(color.r * 1.12, color.g * 0.62, color.b * 0.18);
+        deepCrimson = pow(deepCrimson, vec3(1.25));
+        
+        // Subtle ember glow in hotter crevices
         float lavaLum = dot(color, vec3(0.299, 0.587, 0.114));
-        float boilWave1 = sin(frameTimeCounter * 2.5 + dot(worldPos.xz, vec2(1.7, 1.3))) * 0.15;
-        float boilWave2 = cos(frameTimeCounter * 4.2 + dot(worldPos.xz, vec2(-1.2, 1.8))) * 0.08;
-        float boilFactor = clamp(1.0 + boilWave1 + boilWave2, 0.75, 1.30);
-        vec3 darkCrust = vec3(0.18, 0.025, 0.015);
-        vec3 fieryCore = vec3(1.65, 0.38, 0.06);
-        float contrast = smoothstep(0.22, 0.80, lavaLum);
-        color = mix(darkCrust, fieryCore * boilFactor, contrast);
+        vec3 emberGlow = vec3(0.22, 0.05, 0.01) * smoothstep(0.35, 0.75, lavaLum);
+        
+        color = (deepCrimson + emberGlow) * (1.05 * boilPulse);
     }
 
     // 5. 手持ち光源システム（動的ライト: Dynamic Handheld Light）
@@ -317,7 +324,7 @@ void main() {
     fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
 
     // Fog and god rays blending with lava glow
-    float effectiveFog = isLava ? (fogFactor * 0.65) : fogFactor;
+    float effectiveFog = isLava ? (fogFactor * 0.82) : fogFactor;
     color = mix(color + dynamicLight, currentFog, effectiveFog) + godRayColor;
 
     // 8. 輝度算出 & 彩度調整

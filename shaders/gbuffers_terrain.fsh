@@ -22,5 +22,5 @@ void main() {
     vec4 light = texture2D(lightmap, lmcoord);
     texColor.rgb *= light.rgb;
     
-    gl_FragColor = texColor;
+    gl_FragColor = vec4(texColor.rgb, 1.0);
 }
