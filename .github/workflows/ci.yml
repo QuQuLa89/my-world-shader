@@ -1,0 +1,53 @@
+name: CI & Nightly Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate shaderpack integrity
+        run: |
+          echo "Checking essential shaderpack files..."
+          required_files=(
+            "shaders/shaders.properties"
+            "shaders/block.properties"
+            "shaders/final.vsh"
+            "shaders/final.fsh"
+            "shaders/gbuffers_terrain.vsh"
+            "shaders/gbuffers_terrain.fsh"
+            "shaders/gbuffers_water.vsh"
+            "shaders/gbuffers_water.fsh"
+          )
+          missing=0
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "::error file=$file::Required file missing: $file"
+              missing=1
+            else
+              echo "  OK: $file"
+            fi
+          done
+          if [ $missing -ne 0 ]; then
+            echo "Shaderpack integrity check failed!"
+            exit 1
+          fi
+          echo "All essential shaderpack files verified."
+
+      - name: Package shaderpack zip
+        run: |
+          zip -r my-world-shader-nightly.zip shaders/ README.md
+
+      - name: Upload nightly artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-world-shader-nightly
+          path: my-world-shader-nightly.zip
+          retention-days: 14
