@@ -1,0 +1,16 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+
+# Temporary and build artifacts
+*.tmp
+*.bak
+*.zip
