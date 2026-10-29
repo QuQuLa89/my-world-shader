@@ -169,6 +169,9 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
+        // Exclude first-person hand/arm geometry (objects within 75cm of the camera) from casting detached shadows
+        if (sampledPos.z >= -0.75) continue;
+        
         vec3 sampledWorldPos = (gbufferModelViewInverse * vec4(sampledPos, 1.0)).xyz;
 
         // XZ平面の水平距離と高さの差で近傍の自己遮蔽を抑制
