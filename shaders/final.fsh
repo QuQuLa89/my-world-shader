@@ -1,7 +1,7 @@
 #version 120
 
 /*
- * my-world-shader - Environment-Adaptive Fog & Dynamic Light Edition
+ * my-world-shader - Environment & Day/Night Adaptive Fog Edition
  * Designed for QuQuLa89 by Qwen
  */
 
@@ -11,6 +11,7 @@ uniform mat4 gbufferProjectionInverse;
 
 uniform float frameTimeCounter; // 経過時間（秒）
 uniform float rainStrength;      // 雨の強さ (0.0:晴れ ~ 1.0:雨)
+uniform float sunAngle;          // 太陽・月の角度 (0.0:日の出, 0.25:正午, 0.5:日没, 0.75:真夜中)
 
 uniform int heldBlockLightValue;  // メインハンド光源 (0~15)
 uniform int heldBlockLightValue2; // オフハンド光源 (0~15)
@@ -65,16 +66,20 @@ void main() {
     float linearDist = getLinearDistance(texcoord, depth);
     bool isSky = (depth >= 0.9999);
 
-    // 3. 環境の明るさ適応（光度に応じたフォグ調光）
-    // プレイヤーの頭上・周囲の空光とブロック光 (0.0 ~ 1.0)
-    float skyLight = float(eyeBrightnessSmooth.y) / 240.0;
-    float blockLight = float(eyeBrightnessSmooth.x) / 240.0;
+    // 3. 昼夜・地下の完全光度連動（Day/Night & Cave Adaptive Lighting）
+    // 太陽の高さ計算（正午: +1.0, 日没: 0.0, 深夜: -1.0）
+    float sunHeight = sin(sunAngle * 6.2831853);
+    // 昼間の太陽光係数（日没後に急速に 0.0 へ減衰）
+    float daylight = clamp(sunHeight * 2.5, 0.0, 1.0);
+
+    // 空への露出度（頭上にブロックがないか: 0.0~1.0）
+    float skyExposure = float(eyeBrightnessSmooth.y) / 240.0;
     
-    // バニラフォグ自体の輝度 (夜や洞窟では 0 に近づく)
-    float vanillaFogLum = dot(fogColor, vec3(0.299, 0.587, 0.114));
-    
-    // 環境光係数（昼の地上なら 1.0、洞窟や夜は 0.04 の暗黒へ沈降）
-    float envBrightness = clamp(max(skyLight * 0.85, vanillaFogLum * 0.9), 0.04, 1.0);
+    // 自然光（空が開けており、かつ昼間である場合のみ 1.0 になる）
+    float naturalLight = skyExposure * daylight;
+
+    // 環境光度（昼の地上なら 1.0、夜の地上および洞窟内は 0.035 の深淵へ沈降）
+    float envBrightness = clamp(naturalLight, 0.035, 1.0);
 
     // 4. 手持ち光源システム（動的ライト: Dynamic Handheld Light）
     int heldLight = max(heldBlockLightValue, heldBlockLightValue2);
@@ -102,13 +107,13 @@ void main() {
         torchInFog = lightIntensity * 0.4;
     }
 
-    // 5. 陰鬱とした鈍色の雨煙・霧（環境光連動型フォグ）
-    // 昼の煙霧色（冷たい鈍色）
+    // 5. 陰鬱とした鈍色の雨煙・霧（昼夜・洞窟完全連動型フォグ）
+    // 昼の霧色（スモーキーな鈍色）
     vec3 dayFogColor = vec3(0.40, 0.44, 0.48);
-    // 暗所・洞窟の霧色（底なしの漆黒）
-    vec3 darkFogColor = vec3(0.012, 0.015, 0.018);
+    // 夜間・洞窟の霧色（底なしの漆黒と冷気）
+    vec3 darkFogColor = vec3(0.012, 0.016, 0.022);
 
-    // 環境光度に合わせて霧の色をスムーズに変調（暗所では霧も真っ暗に沈む）
+    // 環境光度（昼夜・地下）に合わせて霧の色を自動変調！
     vec3 currentFog = mix(darkFogColor, dayFogColor, envBrightness);
     
     // 手持ち松明の光が手元の霧に当たっている場合、霧自体を微かに琥珀色に照らす
@@ -144,8 +149,8 @@ void main() {
     }
     color = mix(vec3(lum), color, clamp(localSaturation, 0.0, 1.0));
 
-    // 7. 寒色・鉛色のトーン補正
-    color *= vec3(0.80, 0.86, 0.94);
+    // 7. 寒色・鉛色のトーン補正 & 夜間・暗所の暗黒引き締め
+    color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
 
     // 8. 周辺減光（Vignette）
     float vignette = smoothstep(0.88, 0.32, dist);
