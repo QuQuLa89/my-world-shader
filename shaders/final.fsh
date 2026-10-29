@@ -142,10 +142,10 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
     // 地面自身への自己衝突を防ぐ法線オフセット
     vec3 rayOrigin = viewPos + normal * 0.06;
     
-    // 足元の基準ワールド高さ（カメラ回転から独立した絶対高さ）
-    float originWorldY = (gbufferModelViewInverse * vec4(viewPos, 1.0)).y;
+    // 水平距離と高さの比較に使う基準ワールド座標
+    vec3 originWorldPos = (gbufferModelViewInverse * vec4(viewPos, 1.0)).xyz;
     
-    for (int i = 0; i < 18; i++) {
+    for (int i = 0; i < 22; i++) {
         vec3 rayPos = rayOrigin + lightDir * traceStep;
         
         // カメラ背後への突き抜け・反転特異点を防ぐ安全防壁（Near Plane 近傍保護）
@@ -169,9 +169,11 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
-        // ワールド絶対高さ判定（平坦な地面同士の自己遮蔽・巨大影を完全根絶）
-        float sampledWorldY = (gbufferModelViewInverse * vec4(sampledPos, 1.0)).y;
-        if (sampledWorldY - originWorldY > 0.25) {
+        vec3 sampledWorldPos = (gbufferModelViewInverse * vec4(sampledPos, 1.0)).xyz;
+
+        // XZ平面の水平距離と高さの差で近傍の自己遮蔽を抑制
+        float horizDist = length(sampledWorldPos.xz - originWorldPos.xz);
+        if (horizDist > 0.35 && (sampledWorldPos.y - originWorldPos.y > 0.25)) {
             float zDelta = -rayPos.z - (-sampledPos.z);
             if (zDelta > 0.04 && zDelta < thickness) {
                 float hitFactor = smoothstep(0.04, 0.25, zDelta) * (1.0 - smoothstep(thickness, thickness + 0.5, zDelta));
@@ -179,7 +181,7 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
                 if (shadow < 0.01) break;
             }
         }
-        traceStep *= 1.30;
+        traceStep *= 1.22;
     }
     
     return clamp(shadow, 0.0, 1.0);
