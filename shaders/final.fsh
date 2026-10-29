@@ -9,6 +9,7 @@ uniform sampler2D colortex0;
 uniform sampler2D depthtex0;
 uniform mat4 gbufferProjection;
 uniform mat4 gbufferProjectionInverse;
+uniform mat4 gbufferModelViewInverse;
 uniform sampler2D shadowtex0;
 uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
@@ -145,6 +146,9 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
     // 地面自身への自己衝突を防ぐ法線オフセット
     vec3 rayOrigin = viewPos + normal * 0.06;
     
+    // 足元の基準ワールド高さ（カメラ回転から独立した絶対高さ）
+    float originWorldY = (gbufferModelViewInverse * vec4(viewPos, 1.0)).y;
+    
     for (int i = 0; i < 18; i++) {
         vec3 rayPos = rayOrigin + lightDir * traceStep;
         
@@ -169,9 +173,9 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
-        // 平面方程式による同一平面（平坦な地面）の自己遮蔽防止
-        float heightAbovePlane = dot(normal, sampledPos - viewPos);
-        if (heightAbovePlane > 0.20) {
+        // ワールド絶対高さ判定（平坦な地面同士の自己遮蔽・巨大影を完全根絶）
+        float sampledWorldY = (gbufferModelViewInverse * vec4(sampledPos, 1.0)).y;
+        if (sampledWorldY - originWorldY > 0.25) {
             float zDelta = -rayPos.z - (-sampledPos.z);
             if (zDelta > 0.04 && zDelta < thickness) {
                 float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
