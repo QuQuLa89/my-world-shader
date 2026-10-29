@@ -1,7 +1,7 @@
 #version 120
 
 /*
- * my-world-shader - Shadows, SSAO & Atmospheric God Rays Edition
+ * my-world-shader - Refined Shadows, SSAO & God Rays
  * Designed for QuQuLa89 by Qwen
  */
 
@@ -54,28 +54,20 @@ vec3 getViewPos(vec2 coord, float depth) {
     return viewPos.xyz / viewPos.w;
 }
 
-// 深度から法線（Normal）を復元
-vec3 getNormal(vec2 coord, float depth, vec3 p) {
-    vec2 texel = 1.0 / vec2(viewWidth, viewHeight);
-    
-    float depthR = texture2D(depthtex0, coord + vec2(texel.x, 0.0)).r;
-    float depthU = texture2D(depthtex0, coord + vec2(0.0, texel.y)).r;
-    
-    vec3 pR = getViewPos(coord + vec2(texel.x, 0.0), depthR);
-    vec3 pU = getViewPos(coord + vec2(0.0, texel.y), depthU);
-    
-    vec3 n = cross(pR - p, pU - p);
+// 画面空間微分による高精度法線復元（縞模様・段差アーティファクトを根絶）
+vec3 getNormal(vec3 p) {
+    vec3 n = cross(dFdx(p), dFdy(p));
     float l = length(n);
     return l > 0.0001 ? normalize(n) : vec3(0.0, 1.0, 0.0);
 }
 
-// SSAO（Screen Space Ambient Occlusion: 物陰の深い闇）
+// 洗練されたSSAO（自己遮蔽バイアス付き）
 float computeSSAO(vec2 coord, float depth, vec3 p, vec3 normal) {
     if (depth >= 0.9999) return 1.0;
     
     vec2 texel = 1.0 / vec2(viewWidth, viewHeight);
     float occlusion = 0.0;
-    float radius = clamp(18.0 / length(p), 1.5, 5.0);
+    float radius = clamp(15.0 / length(p), 1.2, 4.0);
     
     vec2 offsets[4];
     offsets[0] = vec2( 1.0,  0.5);
@@ -90,26 +82,38 @@ float computeSSAO(vec2 coord, float depth, vec3 p, vec3 normal) {
         
         vec3 diff = samplePos - p;
         float d = length(diff);
-        if (d > 0.04 && d < 1.2) {
-            occlusion += clamp(dot(normal, diff) / d, 0.0, 1.0) * (1.0 - d / 1.2);
+        // バイアスを設けてフラットな地面の自己遮蔽（縞模様）を完全防止
+        if (d > 0.06 && d < 1.0) {
+            float angleFactor = dot(normal, diff) / d;
+            if (angleFactor > 0.20) {
+                occlusion += (angleFactor - 0.20) * (1.0 - d / 1.0);
+            }
         }
     }
     
-    return clamp(1.0 - (occlusion / 4.0) * 1.6, 0.20, 1.0);
+    return clamp(1.0 - (occlusion / 4.0) * 1.5, 0.35, 1.0);
 }
 
-// 薄明光線（Crepuscular Rays / God Rays）
+// 安全化された薄明光線（画面反転・帯状アーティファクト防止）
 float computeGodRays(vec2 coord, vec3 sunPosView) {
-    if (sunPosView.z >= 0.0) return 0.0;
+    // 太陽がカメラの前方にあり、かつZ値が安全であること
+    if (sunPosView.z >= -2.0) return 0.0;
     
     vec4 sunClip = gbufferProjection * vec4(sunPosView, 1.0);
+    if (sunClip.w <= 0.0) return 0.0; // クリップ空間の後方反転を排除
+    
     vec2 sunScreen = (sunClip.xy / sunClip.w) * 0.5 + 0.5;
     
-    vec2 delta = (sunScreen - coord) / 6.0;
+    // 太陽が画面近傍にある場合のみ描画
+    if (sunScreen.x < -0.2 || sunScreen.x > 1.2 || sunScreen.y < -0.2 || sunScreen.y > 1.2) {
+        return 0.0;
+    }
+    
+    vec2 delta = (sunScreen - coord) / 8.0;
     vec2 currentCoord = coord;
     float rays = 0.0;
     
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 8; i++) {
         currentCoord += delta;
         float d = texture2D(depthtex0, currentCoord).r;
         if (d >= 0.9999) {
@@ -118,8 +122,8 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     }
     
     float sunDist = length(sunScreen - coord);
-    float falloff = clamp(1.0 - sunDist * 0.9, 0.0, 1.0);
-    return (rays / 6.0) * falloff * falloff;
+    float falloff = clamp(1.0 - sunDist * 1.1, 0.0, 1.0);
+    return (rays / 8.0) * falloff * falloff;
 }
 
 void main() {
@@ -146,23 +150,19 @@ void main() {
     float naturalLight = skyExposure * daylight;
     float envBrightness = clamp(naturalLight, 0.035, 1.0);
 
-    // 4. 影と光の調合（指向性ライト & SSAO）
+    // 4. 自然で重厚な影と光（指向性陰影 & SSAO）
     if (!isSky) {
-        // 深度から法線を復元
-        vec3 normal = getNormal(texcoord, depth, viewPos);
-        
-        // 太陽（または月）の方向ベクトル
+        vec3 normal = getNormal(viewPos);
         vec3 lightDir = normalize(sunHeight >= 0.0 ? sunPosition : -sunPosition);
         
-        // 指向性陰影（Lambertian Diffuse + 鋭いコントラスト）
+        // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
         float NdotL = dot(normal, lightDir);
-        float directDiffuse = clamp(NdotL * 0.6 + 0.4, 0.0, 1.0);
-        directDiffuse = mix(0.45, 1.25, directDiffuse * envBrightness);
+        float directDiffuse = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
+        directDiffuse = mix(0.70, 1.15, directDiffuse * envBrightness);
         
-        // SSAO（隙間・角・接地面の深い影）
+        // 角や隙間の自然なオクルージョン影
         float ssao = computeSSAO(texcoord, depth, viewPos, normal);
         
-        // 陰影の適用
         color *= directDiffuse * ssao;
     }
 
@@ -184,10 +184,10 @@ void main() {
         torchInFog = lightIntensity * 0.4;
     }
 
-    // 6. 薄明光線（煙霧を貫く冷たい光条 / God Rays）
+    // 6. 薄明光線（安全化された光条 / God Rays）
     float godRays = 0.0;
-    if (daylight > 0.1 && rainStrength < 0.8) {
-        godRays = computeGodRays(texcoord, sunPosition) * daylight * (1.0 - rainStrength * 0.7) * 0.35;
+    if (daylight > 0.15 && rainStrength < 0.7) {
+        godRays = computeGodRays(texcoord, sunPosition) * daylight * (1.0 - rainStrength * 0.7) * 0.28;
     }
     vec3 godRayColor = vec3(0.85, 0.90, 0.96) * godRays;
 
@@ -226,7 +226,7 @@ void main() {
     }
     color = mix(vec3(lum), color, clamp(localSaturation, 0.0, 1.0));
 
-    // 9. 寒色・鉛色のトーン補正 & 夜間・暗所の暗黒引き締め
+    // 9. 寒色・鉛色のトーン補正 & 暗所引き締め
     color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
 
     // 10. 周辺減光（Vignette）
