@@ -9,6 +9,7 @@ varying vec3 normal;
 varying vec3 worldPos;
 varying vec3 viewPos;
 varying float isWaterFlag;
+varying float isLavaFlag;
 
 uniform mat4 gbufferModelViewInverse;
 
@@ -20,6 +21,7 @@ void main() {
 
     // block.properties で割り当てた水ブロックを判定します。
     isWaterFlag = (abs(mc_Entity.x - 10001.0) < 0.5) ? 1.0 : 0.0;
+    isLavaFlag = (abs(mc_Entity.x - 10002.0) < 0.5) ? 1.0 : 0.0;
     
     vec4 vPos = gl_ModelViewMatrix * gl_Vertex;
     viewPos = vPos.xyz;

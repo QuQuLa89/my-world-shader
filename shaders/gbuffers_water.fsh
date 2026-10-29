@@ -17,6 +17,7 @@ varying vec3 normal;
 varying vec3 worldPos;
 varying vec3 viewPos;
 varying float isWaterFlag;
+varying float isLavaFlag;
 
 // 深度からビュー空間位置を復元
 vec3 getViewPos(vec2 coord, float depth) {
@@ -47,6 +48,10 @@ float waveNoise(vec2 p) {
 void main() {
     vec4 texColor = texture2D(texture, texcoord) * color;
     bool isWater = (isWaterFlag > 0.5);
+    if (isLavaFlag > 0.5) {
+        gl_FragColor = vec4(texColor.rgb, 0.85);
+        return;
+    }
 
     // 水以外の透明部分はアルファテストで除外します。
     if (!isWater) {
@@ -92,7 +97,7 @@ void main() {
     vec3 waterColor = mix(shallowTurquoise, deepTurquoise, depthAbsorption);
     
     // リアルな透明度（浅瀬は極めて透明、深水は濁る）
-    float waterAlpha = clamp(0.15 + depthAbsorption * 0.72, 0.15, 0.88);
+    float waterAlpha = clamp(0.15 + depthAbsorption * 0.60, 0.15, 0.75);
     
     // フレネル反射（水面を見下ろすと透き通り、斜めから見ると空光や光沢を反射）
     vec3 viewDir = normalize(-surfacePos);

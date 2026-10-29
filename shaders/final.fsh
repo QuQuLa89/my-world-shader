@@ -198,7 +198,9 @@ void main() {
     // 1. 微細な色収差（Chromatic Aberration）
     float aberration = dist * 0.005;
     float r = texture2D(colortex0, texcoord + vec2(aberration, 0.0)).r;
-    float g = texture2D(colortex0, texcoord).g;
+    vec4 centerTex = texture2D(colortex0, texcoord);
+    float g = centerTex.g;
+    float rawAlpha = centerTex.a;
     float b = texture2D(colortex0, texcoord - vec2(aberration, 0.0)).b;
     vec3 color = vec3(r, g, b);
 
@@ -208,6 +210,7 @@ void main() {
     vec3 normal = getNormal(viewPos);
     float linearDist = length(viewPos);
     bool isSky = (depth >= 0.9999);
+    bool isLava = !isSky && (abs(rawAlpha - 0.85) < 0.03);
 
     // 3. 昼夜・地下の光度連動
     float sunHeight = sin(sunAngle * 6.2831853);
@@ -217,7 +220,7 @@ void main() {
     float envBrightness = clamp(naturalLight, 0.035, 1.0);
 
     // 4. 自然で重厚な影と光（指向性陰影 & SSAO）
-    if (!isSky) {
+    if (!isSky && !isLava) {
         vec3 lightDir = normalize(sunHeight >= 0.0 ? sunPosition : -sunPosition);
         
         // 緩やかでリアルな指向性陰影（極端な階調跳びを排除）
@@ -230,6 +233,18 @@ void main() {
         float ssao = computeSSAO(texcoord, depth, viewPos, normal);
         
         color *= directDiffuse * ssao;
+    }
+    // 4.5 Boiling dark-crimson lava emission
+    if (isLava) {
+        vec3 worldPos = (gbufferModelViewInverse * vec4(viewPos, 1.0)).xyz;
+        float lavaLum = dot(color, vec3(0.299, 0.587, 0.114));
+        float boilWave1 = sin(frameTimeCounter * 2.5 + dot(worldPos.xz, vec2(1.7, 1.3))) * 0.15;
+        float boilWave2 = cos(frameTimeCounter * 4.2 + dot(worldPos.xz, vec2(-1.2, 1.8))) * 0.08;
+        float boilFactor = clamp(1.0 + boilWave1 + boilWave2, 0.75, 1.30);
+        vec3 darkCrust = vec3(0.18, 0.025, 0.015);
+        vec3 fieryCore = vec3(1.65, 0.38, 0.06);
+        float contrast = smoothstep(0.22, 0.80, lavaLum);
+        color = mix(darkCrust, fieryCore * boilFactor, contrast);
     }
 
     // 5. 手持ち光源システム（動的ライト: Dynamic Handheld Light）
@@ -244,7 +259,7 @@ void main() {
         lightIntensity = lightIntensity * lightIntensity * flicker;
         vec3 torchWarmth = vec3(1.0, 0.72, 0.40);
 
-        if (!isSky) {
+        if (!isSky && !isLava) {
             dynamicLight = color * torchWarmth * (lightIntensity * 1.5);
         }
         torchInFog = lightIntensity * 0.4;
@@ -301,8 +316,9 @@ void main() {
 
     fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
 
-    // 霧と薄明光線の合成
-    color = mix(color + dynamicLight, currentFog, fogFactor) + godRayColor;
+    // Fog and god rays blending with lava glow
+    float effectiveFog = isLava ? (fogFactor * 0.65) : fogFactor;
+    color = mix(color + dynamicLight, currentFog, effectiveFog) + godRayColor;
 
     // 8. 輝度算出 & 彩度調整
     float lum = dot(color, vec3(0.299, 0.587, 0.114));
@@ -311,10 +327,14 @@ void main() {
         float warmArea = clamp(1.0 - (linearDist / 8.0), 0.0, 1.0);
         localSaturation += warmArea * 0.22;
     }
-    color = mix(vec3(lum), color, clamp(localSaturation, 0.0, 1.0));
+    if (!isLava) {
+        color = mix(vec3(lum), color, clamp(localSaturation, 0.0, 1.0));
+    }
 
     // 9. 寒色・鉛色のトーン補正 & 暗所引き締め
-    color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
+    if (!isLava) {
+        color *= vec3(0.80, 0.86, 0.94) * mix(0.70, 1.0, envBrightness);
+    }
 
     // 10. 周辺減光（Vignette）
     float vignette = 1.0 - smoothstep(0.55, 0.98, dist);
