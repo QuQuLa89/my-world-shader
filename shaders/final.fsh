@@ -129,8 +129,12 @@ float computeGodRays(vec2 coord, vec3 sunPosView) {
     return (rays / 8.0) * falloff * falloff;
 }
 
-// Solas / BSL に基づく Screen Space Contact Shadows（特異点保護・ディザー・エッジフェード付き）
+// Solas / BSL に基づく Screen Space Contact Shadows（特異点保護・ディザー・エッジフェード・順光安全化付き）
 float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 coord) {
+    // 太陽がカメラ背後にある場合（順光）、カメラ焦点へのレイ収束による特異点・巨大影を安全に遮断
+    if (lightDir.z > 0.15) return 1.0;
+    float forwardLightFactor = smoothstep(0.15, -0.05, lightDir.z);
+
     float shadow = 1.0;
     
     // ピクセル単位のディザーによるスライス縞の根絶
@@ -144,8 +148,8 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
     for (int i = 0; i < 18; i++) {
         vec3 rayPos = rayOrigin + lightDir * traceStep;
         
-        // カメラ背後への突き抜け・反転特異点を防ぐ安全防壁
-        if (rayPos.z >= -0.2) break;
+        // カメラ背後への突き抜け・反転特異点を防ぐ安全防壁（Near Plane 近傍保護）
+        if (rayPos.z >= -0.3) break;
         
         vec4 projPos = gbufferProjection * vec4(rayPos, 1.0);
         if (projPos.w <= 0.0) break;
@@ -178,6 +182,7 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         traceStep *= 1.30;
     }
     
+    shadow = mix(1.0, shadow, forwardLightFactor);
     return clamp(shadow, 0.0, 1.0);
 }
 
