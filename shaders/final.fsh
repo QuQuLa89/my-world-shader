@@ -255,8 +255,8 @@ void main() {
 
     fogFactor = clamp(fogFactor + mist * (1.0 - exp(-0.02 * fogDist)), 0.0, 1.0);
 
-    // 霧と薄明光線の合成
-    color = mix(color + dynamicLight, currentFog, fogFactor) + godRayColor;
+    // テスト検証用: フォグ合成を完全バイパス（撤廃）
+    color = color + dynamicLight + godRayColor;
 
     // 8. 輝度算出 & 彩度調整
     float lum = dot(color, vec3(0.299, 0.587, 0.114));
