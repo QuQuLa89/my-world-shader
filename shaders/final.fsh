@@ -165,11 +165,15 @@ float computeScreenSpaceShadow(vec3 viewPos, vec3 lightDir, vec3 normal, vec2 co
         float sampledDepth = texture2D(depthtex0, screenPos.xy).r;
         vec3 sampledPos = getViewPos(screenPos.xy, sampledDepth);
         
-        float zDelta = -rayPos.z - (-sampledPos.z);
-        if (zDelta > 0.04 && zDelta < thickness) {
-            float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
-            shadow *= 1.0 - (hitFactor * edgeFade);
-            if (shadow < 0.01) break;
+        // 平面方程式による同一平面（平坦な地面）の自己遮蔽防止
+        float heightAbovePlane = dot(normal, sampledPos - viewPos);
+        if (heightAbovePlane > 0.20) {
+            float zDelta = -rayPos.z - (-sampledPos.z);
+            if (zDelta > 0.04 && zDelta < thickness) {
+                float hitFactor = smoothstep(0.04, 0.25, zDelta) * smoothstep(thickness + 0.5, thickness, zDelta);
+                shadow *= 1.0 - (hitFactor * edgeFade);
+                if (shadow < 0.01) break;
+            }
         }
         traceStep *= 1.30;
     }
